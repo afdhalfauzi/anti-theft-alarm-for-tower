@@ -21,7 +21,7 @@ int8_t Radar::getBodysign()
     do
     {
         radar.HumanStatic_func(true); // Turn on printing of human movement sign parameters
-        delay(200);
+        vTaskDelay(200);
     } while (radar.radarStatus == 0x00);
     return radar.bodysign_val;
 }

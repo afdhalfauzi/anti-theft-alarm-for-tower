@@ -2,10 +2,11 @@
 #include "Radar.h"
 #include "Telebot.h"
 #include "Accelero.h"
+#include <EEPROM.h>
 
 #define RELAY_PIN 23
-#define PIR_PIN 22
-#define VIBRATION_TRESHOLD 0.5
+#define EEPROM_ADDRESS 0
+#define EEPROM_SIZE 8
 
 Radar radars;
 Telebot telebot;
@@ -13,15 +14,26 @@ Accelero accelero;
 
 int8_t bodysign;
 bool isVibrate;
+float vibrationThreshold_g;
 
 void radarTask(void *parameter);
 void acceleroTask(void *parameter);
+
 void setup()
 {
   Serial.begin(115200);
-  telebot.begin();
-  pinMode(PIR_PIN, INPUT);
+  // telebot.begin();
   pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);
+
+  EEPROM.begin(EEPROM_SIZE);
+  vibrationThreshold_g = EEPROM.readFloat(EEPROM_ADDRESS);
+  Serial.print("Current Treshold: ");
+  Serial.println(vibrationThreshold_g);
+  Serial.println("Enter new threshold:");
+
+  xTaskCreate(acceleroTask, "accelero task", 1024 * 5, NULL, 1, NULL);
+  xTaskCreate(radarTask, "radar task", 1024 * 5, NULL, 2, NULL);
 
   while (!Serial)
     ;
@@ -29,32 +41,26 @@ void setup()
 
 void loop()
 {
-  switch (bodysign)
-  /*0     No one detected in surrounding environment
-    1     environment is detected to be occupied and in a stationary state
-    2-100 surroundings are detected to be occupied and active*/
-  {
-  case 0:
-    Serial.println("No human");
-    Serial.println("---------------------------------");
-    break;
-  case 1 ... 6:
-    Serial.println("Human detected");
-    Serial.println("---------------------------------");
-    break;
-  case 7 ... 100:
-    Serial.println("Human activity detected");
-    Serial.println("---------------------------------");
-    break;
-  }
   if (bodysign >= 1 && isVibrate)
   {
     digitalWrite(RELAY_PIN, LOW);
-    telebot.sendMessage("");
+    Serial.println("ALARM ON");
+    // telebot.sendMessage("");
+    delay(3000);
   }
   else
     digitalWrite(RELAY_PIN, HIGH);
-  delay(200);
+
+  Serial.printf("Bodysign:%i accX:%.2f accY:%.2f accZ:%.2f vibrThreshold:%.2f\n", bodysign, accelero.accX, accelero.accY, accelero.accZ, vibrationThreshold_g);
+  if (Serial.available())
+  {
+    vibrationThreshold_g = Serial.readStringUntil('\n').toFloat();
+    Serial.printf("Changing treshold from %.2f g to %.2f g ...\n", EEPROM.readFloat(0), vibrationThreshold_g);
+    EEPROM.writeFloat(0, vibrationThreshold_g);
+    EEPROM.commit();
+    Serial.printf("Threshold updated, vibration will be detected if it reaches %.2f g", vibrationThreshold_g);
+  }
+  vTaskDelay(200);
 }
 
 void radarTask(void *parameter)
@@ -72,6 +78,6 @@ void acceleroTask(void *parameter)
   while (1)
   {
     accelero.update();
-    isVibrate = accelero.detectVibration(VIBRATION_TRESHOLD);
+    isVibrate = accelero.detectVibration(vibrationThreshold_g);
   }
 }

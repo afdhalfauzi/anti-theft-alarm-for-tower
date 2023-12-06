@@ -6,11 +6,10 @@ MPU6050 mpu(Wire);
 class Accelero
 {
 private:
+public:
     float accX;
     float accY;
     float accZ;
-
-public:
     Accelero();
     bool init();
     void update();
@@ -32,7 +31,7 @@ bool Accelero::init()
 
     Serial.println(F("Calculating offsets, do not move MPU6050"));
     delay(1000);
-    mpu.calcOffsets(true, true); // gyro and accelero
+    mpu.calcOffsets(false, true); // gyro and accelero
     Serial.println("Done!\n");
 
     return 1;
