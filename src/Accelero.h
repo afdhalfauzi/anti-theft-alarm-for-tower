@@ -10,9 +10,13 @@ public:
     float accX;
     float accY;
     float accZ;
+    float gyX;
+    float gyY;
+    float gyZ;
     Accelero();
     bool init();
     void update();
+    void printValue();
     bool detectVibration(float treshold);
 };
 
@@ -31,7 +35,7 @@ bool Accelero::init()
 
     Serial.println(F("Calculating offsets, do not move MPU6050"));
     delay(1000);
-    mpu.calcOffsets(false, true); // gyro and accelero
+    mpu.calcOffsets(); // gyro and accelero
     Serial.println("Done!\n");
 
     return 1;
@@ -42,7 +46,26 @@ void Accelero::update()
     mpu.update();
     accX = mpu.getAccX();
     accY = mpu.getAccY();
-    accZ = mpu.getAccZ();
+    accZ = mpu.getAccZ() - 1;
+    gyX = mpu.getAngleX();
+    gyY = mpu.getAngleY();
+    gyZ = mpu.getAngleZ();
+}
+
+void Accelero::printValue()
+{
+    Serial.print("X:");
+    Serial.print(accX);
+    Serial.print(" Y:");
+    Serial.print(accY);
+    Serial.print(" Z:");
+    Serial.print(accZ);
+    Serial.print(" X:");
+    Serial.print(gyX);
+    Serial.print(" Y:");
+    Serial.print(gyY);
+    Serial.print(" Z:");
+    Serial.println(gyZ);
 }
 
 bool Accelero::detectVibration(float treshold)
