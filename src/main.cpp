@@ -3,7 +3,7 @@
 #include "Sensor_mmWave.h"
 #include "Bot_Telegram.h"
 #include "Storage_LittleFS.h"
-#include <WiFi.h>
+#include <WiFiManager.h>
 
 #define RELAY_PIN 23
 #define ALERT_DURATION 60000
@@ -22,6 +22,7 @@ void radarTask(void *parameter);
 void acceleroTask(void *parameter);
 void scheduledMessage(void *parameter);
 void updatesViaSerial(void *parameter);
+void autoConnectAP();
 
 void setup()
 {
@@ -29,11 +30,11 @@ void setup()
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, HIGH);
 
-  xTaskCreate(acceleroTask, "mpu task", 1024 * 10, NULL, 1, NULL);
-  xTaskCreate(eventDetection, "detect event", 1024 * 10, NULL, 2, NULL);
+  xTaskCreate(acceleroTask, "mpu task", 1024 * 5, NULL, 1, NULL);
+  xTaskCreate(eventDetection, "detect event", 1024 * 5, NULL, 2, NULL);
   xTaskCreate(updatesViaSerial, "threshold updates", 1024 * 10, NULL, 3, NULL);
   xTaskCreate(radarTask, "radar task", 1024 * 5, NULL, 4, NULL);
-  xTaskCreate(scheduledMessage, "hourly message", 1024 * 5, NULL, 5, NULL);
+  xTaskCreate(scheduledMessage, "hourly message", 1024 * 10, NULL, 5, NULL);
 }
 
 void loop()
@@ -89,16 +90,21 @@ void acceleroTask(void *parameter)
 void scheduledMessage(void *parameter)
 {
   unsigned long lastMessageTime = 0;
+  autoConnectAP();
   telebot.init();
   while (1)
   {
-    if (millis() - lastMessageTime >= config.msgInterval_ms && WiFi.status() == WL_CONNECTED)
+    if (WiFi.status() == WL_CONNECTED)
     {
-      char payload[60];
-      sprintf(payload, "Angle:\n X:%.2f° Y:%.2f° Z:%.2f°\n", mpu.gyX, mpu.gyY, mpu.gyZ);
-      lastMessageTime = millis();
-      telebot.sendMessage(payload);
+      if (millis() - lastMessageTime >= config.msgInterval_ms /*&& WiFi.status() == WL_CONNECTED*/)
+      {
+        char payload[60];
+        sprintf(payload, "Angle:\n X:%.2f° Y:%.2f° Z:%.2f°\n", mpu.gyX, mpu.gyY, mpu.gyZ);
+        lastMessageTime = millis();
+        telebot.sendMessage(payload);
+      }
     }
+    else autoConnectAP();
     vTaskDelay(50);
   }
 }
@@ -132,5 +138,24 @@ void updatesViaSerial(void *parameter)
       Serial.printf("vibrThreshold:%.2fg vibrDuration:%ims msgInterval:%ims | Human:%i\n\n", config.vibrThreshold_g, config.vibrDuration_ms, config.msgInterval_ms, isHumanDetected);
     }
     vTaskDelay(50);
+  }
+}
+
+void autoConnectAP()
+{
+  WiFi.mode(WIFI_STA);
+  WiFiManager wm;
+  bool res;
+  res = wm.autoConnect("ESP32"); // anonymous ap
+
+  if (!res)
+  {
+    Serial.println("Failed to connect");
+    // ESP.restart();
+  }
+  else
+  {
+    // if you get here you have connected to the WiFi
+    Serial.println("Wifi Connected");
   }
 }

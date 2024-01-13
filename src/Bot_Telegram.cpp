@@ -2,14 +2,14 @@
 
 bool Bot_Telegram::init()
 {
-    Serial.println("Connecting to WiFi..");
-    bot.wifiConnect(ssid, pass);
+    // Serial.println("Connecting to WiFi..");
+    // bot.wifiConnect(ssid, pass);
     while (!bot.testConnection())
     {
         bot.setTelegramToken(TELEGRAM_BOT_TOKEN);
         delay(500);
     }
-    Serial.println("Connected");
+    Serial.println("Bot Connected");
     return true;
 }
 
