@@ -34,8 +34,7 @@ void setup()
   xTaskCreate(radarTask, "radar task", 1024 * 5, NULL, 4, NULL);
   xTaskCreate(scheduledMessage, "hourly message", 1024 * 5, NULL, 5, NULL);
 }
-bool vibrationState = false;
-unsigned long vibrationStartTime;
+
 void loop()
 {
   vTaskDelete(NULL);
