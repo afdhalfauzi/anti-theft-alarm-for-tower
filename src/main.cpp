@@ -6,7 +6,8 @@
 #include <WiFi.h>
 
 #define RELAY_PIN 23
-#define ALERT_DURATION 120000
+#define ALERT_DURATION 60000
+#define ALERT_MSG_INTERVAL 10000
 
 Sensor_mmWave radar;
 Sensor_MPU6050 mpu;
@@ -42,15 +43,23 @@ void loop()
 
 void eventDetection(void *parameter)
 {
-
+  unsigned long alarmStartTime = 0;
+  unsigned long lastAlertTime = 0;
   while (1)
   {
     if (isHumanDetected && isVibrate)
     {
       digitalWrite(RELAY_PIN, LOW);
       Serial.println("ALARM ON");
-      telebot.sendMessage("NIU NIU");
-      delay(ALERT_DURATION);
+      alarmStartTime = millis();
+      while (millis() - alarmStartTime <= ALERT_DURATION)
+      {
+        if (millis() - lastAlertTime >= ALERT_MSG_INTERVAL)
+        {
+          telebot.sendMessage("Alert! Theft activity detected, alarm active");
+          lastAlertTime = millis();
+        }
+      }
     }
     else
       digitalWrite(RELAY_PIN, HIGH);
@@ -86,7 +95,7 @@ void scheduledMessage(void *parameter)
     if (millis() - lastMessageTime >= config.msgInterval_ms && WiFi.status() == WL_CONNECTED)
     {
       char payload[60];
-      sprintf(payload, "Tilt angle: %.2f°\n", mpu.gyX);
+      sprintf(payload, "Angle:\n X:%.2f° Y:%.2f° Z:%.2f°\n", mpu.gyX, mpu.gyY, mpu.gyZ);
       lastMessageTime = millis();
       telebot.sendMessage(payload);
     }
