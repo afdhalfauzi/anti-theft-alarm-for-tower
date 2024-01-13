@@ -1,83 +1,128 @@
 #include "Arduino.h"
-#include "Radar.h"
-#include "Telebot.h"
-#include "Accelero.h"
-#include <EEPROM.h>
+#include "Sensor_MPU6050.h"
+#include "Sensor_mmWave.h"
+#include "Bot_Telegram.h"
+#include "Storage_LittleFS.h"
+#include <WiFi.h>
 
 #define RELAY_PIN 23
-#define EEPROM_ADDRESS 0
-#define EEPROM_SIZE 8
+#define ALERT_DURATION 120000
 
-Radar radars;
-Telebot telebot;
-Accelero accelero;
+Sensor_mmWave radar;
+Sensor_MPU6050 mpu;
+Bot_Telegram telebot;
+Storage_LittleFS config;
 
-int8_t bodysign;
+bool isHumanDetected;
 bool isVibrate;
-float vibrationThreshold_g;
 
+void eventDetection(void *parameter);
 void radarTask(void *parameter);
 void acceleroTask(void *parameter);
+void scheduledMessage(void *parameter);
+void updatesViaSerial(void *parameter);
 
 void setup()
 {
   Serial.begin(115200);
-  // telebot.begin();
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, HIGH);
 
-  EEPROM.begin(EEPROM_SIZE);
-  vibrationThreshold_g = EEPROM.readFloat(EEPROM_ADDRESS);
-  Serial.print("Current Treshold: ");
-  Serial.println(vibrationThreshold_g);
-  Serial.println("Enter new threshold:");
-
-  xTaskCreate(acceleroTask, "accelero task", 1024 * 5, NULL, 1, NULL);
-  xTaskCreate(radarTask, "radar task", 1024 * 5, NULL, 2, NULL);
-
-  while (!Serial)
-    ;
+  xTaskCreate(acceleroTask, "mpu task", 1024 * 10, NULL, 1, NULL);
+  xTaskCreate(eventDetection, "detect event", 1024 * 10, NULL, 2, NULL);
+  xTaskCreate(updatesViaSerial, "threshold updates", 1024 * 10, NULL, 3, NULL);
+  xTaskCreate(radarTask, "radar task", 1024 * 5, NULL, 4, NULL);
+  xTaskCreate(scheduledMessage, "hourly message", 1024 * 5, NULL, 5, NULL);
 }
-
+bool vibrationState = false;
+unsigned long vibrationStartTime;
 void loop()
 {
-  if (bodysign >= 1 && isVibrate)
-  {
-    digitalWrite(RELAY_PIN, LOW);
-    Serial.println("ALARM ON");
-    // telebot.sendMessage("");
-    delay(3000);
-  }
-  else
-    digitalWrite(RELAY_PIN, HIGH);
+  vTaskDelete(NULL);
+}
 
-  Serial.printf("Bodysign:%i accX:%.2f accY:%.2f accZ:%.2f vibrThreshold:%.2f\n", bodysign, accelero.accX, accelero.accY, accelero.accZ, vibrationThreshold_g);
-  if (Serial.available())
+void eventDetection(void *parameter)
+{
+
+  while (1)
   {
-    vibrationThreshold_g = Serial.readStringUntil('\n').toFloat();
-    Serial.printf("Changing treshold from %.2f g to %.2f g ...\n", EEPROM.readFloat(0), vibrationThreshold_g);
-    EEPROM.writeFloat(0, vibrationThreshold_g);
-    EEPROM.commit();
-    Serial.printf("Threshold updated, vibration will be detected if it reaches %.2f g", vibrationThreshold_g);
+    if (isHumanDetected && isVibrate)
+    {
+      digitalWrite(RELAY_PIN, LOW);
+      Serial.println("ALARM ON");
+      telebot.sendMessage("NIU NIU");
+      delay(ALERT_DURATION);
+    }
+    else
+      digitalWrite(RELAY_PIN, HIGH);
+    vTaskDelay(50);
   }
-  vTaskDelay(200);
 }
 
 void radarTask(void *parameter)
 {
   while (1)
   {
-    bodysign = radars.getBodysign();
-    vTaskDelay(200);
+    isHumanDetected = (radar.getBodysign() >= 1);
+    vTaskDelay(50);
   }
 }
 
 void acceleroTask(void *parameter)
 {
-  accelero.init();
+  mpu.init();
   while (1)
   {
-    accelero.update();
-    isVibrate = accelero.detectVibration(vibrationThreshold_g);
+    isVibrate = (mpu.getAverageReading() >= config.vibrThreshold_g);
+    vTaskDelay(50);
+  }
+}
+
+void scheduledMessage(void *parameter)
+{
+  unsigned long lastMessageTime = 0;
+  telebot.init();
+  while (1)
+  {
+    if (millis() - lastMessageTime >= config.msgInterval_ms && WiFi.status() == WL_CONNECTED)
+    {
+      char payload[60];
+      sprintf(payload, "Tilt angle: %.2f°\n", mpu.gyX);
+      lastMessageTime = millis();
+      telebot.sendMessage(payload);
+    }
+    vTaskDelay(50);
+  }
+}
+
+void updatesViaSerial(void *parameter)
+{
+  unsigned long lastPrintTime = 0;
+  config.init();
+  config.load();
+  while (1)
+  {
+    if (Serial.available())
+    {
+      StaticJsonDocument<200> doc;
+      String jsonString = Serial.readStringUntil('\n');
+
+      deserializeJson(doc, jsonString);
+
+      config.vibrThreshold_g = doc["vibrThreshold"];
+      config.vibrDuration_ms = doc["vibrDuration"];
+      config.msgInterval_ms = doc["msgInterval"];
+
+      config.save();
+
+      delay(2000);
+    }
+    if (millis() - lastPrintTime >= 1000)
+    {
+      lastPrintTime = millis();
+      Serial.printf("averageAcceleration:%.2fg | gyX:%.2f gyY:%.2f gyZ:%.2f\n", mpu.getAverageReading(), mpu.gyX, mpu.gyY, mpu.gyZ);
+      Serial.printf("vibrThreshold:%.2fg vibrDuration:%ims msgInterval:%ims | Human:%i\n\n", config.vibrThreshold_g, config.vibrDuration_ms, config.msgInterval_ms, isHumanDetected);
+    }
+    vTaskDelay(50);
   }
 }
